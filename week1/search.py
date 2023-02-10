@@ -94,7 +94,7 @@ def query():
     print("query obj: {}".format(query_obj))
 
     #### Step 4.b.ii
-    response = None   # TODO: Replace me with an appropriate call to OpenSearch
+    response = opensearch.search(body=query_obj, index="bbuy_products")
     # Postprocess results here if you so desire
 
     #print(response)
@@ -111,11 +111,107 @@ def create_query(user_query, filters, sort="_score", sortDir="desc"):
     query_obj = {
         'size': 10,
         "query": {
-            "match_all": {} # Replace me with a query that both searches and filters
+            "function_score": {
+                "query": {
+                    "bool":{
+                        "must":{
+                            "query_string": {
+                                "query": user_query,
+                                "phrase_slop":3,
+                                "fields": ["name^1000", "shortDescription^50", "longDescription^10", "department"]
+                            }
+                        },
+                        "filter": filters
+                    }
+                },
+                "boost_mode": "replace",
+                "score_mode": "avg",
+                "functions": [
+                    {
+                        "field_value_factor":{
+                            "field":"salesRankLongTerm",
+                            "modifier":"reciprocal",
+                            "missing":100000000
+                        }
+                    },
+                    {
+                        "field_value_factor":{
+                            "field":"salesRankMediumTerm",
+                            "modifier":"reciprocal",
+                            "missing":100000000
+                        }
+                    },
+                    {
+                        "field_value_factor":{
+                            "field":"salesRankShortTerm",
+                            "modifier":"reciprocal",
+                            "missing":100000000
+                        }
+                    }
+                ]
+            }
         },
+        "sort": [
+            {sort:{"order": sortDir}},
+            {"regularPrice":{"order": sortDir}},
+            {"name.keyword":{"order": sortDir}}
+        ],
         "aggs": {
             #### Step 4.b.i: create the appropriate query and aggregations here
-
+            "department": {
+                "terms": {
+                    "field": "department.keyword"
+                }
+            },
+            "missing_images": {
+                "missing": {
+                    "field": "image"
+                }
+            },
+            "regularPrice": {
+                "range": {
+                    "field": "regularPrice",
+                    "ranges": [
+                        {
+                            "key": "Up to $50", 
+                            "to": 50
+                        },
+                        {
+                            "key": "$50-$100", 
+                            "from": 50, 
+                            "to": 100
+                        },
+                        {
+                            "key": "$100-$150", 
+                            "from": 100, 
+                            "to": 150
+                        },
+                        {
+                            "key": "$150-$200", 
+                            "from": 150, 
+                            "to": 200
+                        },
+                        {
+                            "key": "$200-$250",
+                            "from": 200, 
+                            "to": 250
+                        },
+                        {
+                            "key": "250$+", 
+                            "from": 250
+                        }
+                    ]
+                }
+            }
+        },
+        "highlight": {
+            "pre_tags":["<mark>"],
+            "post_tags":["</mark>"],
+            "fields": {
+                "name": {},
+                "shortDescription": {},
+                "longDescription": {}
+            }
         }
     }
     return query_obj
